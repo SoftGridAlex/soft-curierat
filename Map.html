@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Curier Pro - Navigație 3D</title>
+    
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background: #1a1a1a; font-family: sans-serif; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+
+        /* UI de Navigație (Sus) */
+        .waze-ui-top {
+            position: absolute; top: 0; width: 100%; height: 70px;
+            background: #00d0ff; color: white; z-index: 10;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 1.2rem; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        /* Săgeata de Navigație */
+        .navigation-arrow {
+            width: 60px; height: 60px;
+            filter: drop-shadow(0px 6px 4px rgba(0,0,0,0.5));
+        }
+
+        /* Buton Activare GPS */
+        .gps-btn {
+            position: absolute; bottom: 30px; right: 20px;
+            width: 65px; height: 65px; background: white;
+            border-radius: 50%; border: none; z-index: 10;
+            font-size: 28px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+        }
+    </style>
+</head>
+<body>
+
+<div class="waze-ui-top" id="info">Apasă pe 🎯 pentru Start</div>
+<button class="gps-btn" onclick="pornesteGPS()">🎯</button>
+<div id="map"></div>
+
+<script>
+    // 1. Configurarea hărții cu stil Dark gratuit (CartoDB)
+    const map = new maplibregl.Map({
+        container: 'map',
+        style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+        center: [26.106, 44.432], // București
+        zoom: 17,
+        pitch: 65,     // Înclinarea 3D
+        bearing: 0,    // Rotația
+        antialias: true
+    });
+
+    // 2. Crearea Săgeții (SVG)
+    const arrowDiv = document.createElement('div');
+    arrowDiv.innerHTML = `
+        <svg class="navigation-arrow" viewBox="0 0 100 100">
+            <path d="M50 5 L90 95 L50 75 L10 95 Z" fill="#0047ff" stroke="white" stroke-width="6"/>
+        </svg>`;
+
+    const marker = new maplibregl.Marker({ element: arrowDiv })
+        .setLngLat([26.106, 44.432])
+        .addTo(map);
+
+    // 3. Funcția principală de GPS
+    function pornesteGPS() {
+        if (!navigator.geolocation) {
+            alert("Browserul tău nu suportă GPS.");
+            return;
+        }
+
+        // Cerem locația oficial
+        navigator.geolocation.watchPosition((pos) => {
+            const { latitude, longitude, heading } = pos.coords;
+            const myLocation = [longitude, latitude];
+
+            // Mutăm săgeata și centrăm harta
+            marker.setLngLat(myLocation);
+            map.flyTo({ center: myLocation, duration: 1000, essential: true });
+
+            // Dacă te miști (ai direcție), rotim harta după tine
+            if (heading !== null) {
+                map.setBearing(heading);
+                arrowDiv.style.transform = `rotate(${heading}deg)`;
+            }
+
+            document.getElementById('info').innerText = "Navigație Activă";
+        }, 
+        (err) => alert("Eroare GPS: Asigură-te că ești pe HTTPS și ai dat 'Allow'"), 
+        { enableHighAccuracy: true });
+    }
+
+    // 4. Adăugare clădiri 3D când harta este gata
+    map.on('load', () => {
+        map.addLayer({
+            'id': '3d-buildings',
+            'source': 'openmaptiles',
+            'source-layer': 'building',
+            'type': 'fill-extrusion',
+            'minzoom': 15,
+            'paint': {
+                'fill-extrusion-color': '#333',
+                'fill-extrusion-height': ['get', 'render_height'],
+                'fill-extrusion-opacity': 0.8
+            }
+        });
+    });
+</script>
+
+</body>
+</html>
