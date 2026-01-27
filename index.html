@@ -1,74 +1,126 @@
 <!DOCTYPE html>
-<html>
+<html lang="ro">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Navigație Ghindăoani</title>
+    <title>Navigație Pro - SoftGridAlex</title>
     <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; }
+        body { margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; }
-        .nav-info {
-            position: absolute; top: 10px; left: 10px; right: 10px;
-            background: #00d0ff; color: white; padding: 15px;
-            border-radius: 10px; text-align: center; font-family: sans-serif;
-            font-weight: bold; z-index: 10;
+        
+        /* Header stil Waze */
+        .nav-panel {
+            position: absolute; top: 0; left: 0; right: 0;
+            background: #0047ff; color: white; padding: 15px;
+            z-index: 10; display: flex; flex-direction: column;
+            align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
         }
+        .dist-info { font-size: 24px; font-weight: bold; }
+        .time-info { font-size: 14px; opacity: 0.9; }
+
+        /* Săgeata de navigație */
+        .navigation-arrow { width: 50px; height: 50px; }
     </style>
 </head>
 <body>
 
-<div class="nav-info" id="status">Căutare rută spre Ghindăoani...</div>
+<div class="nav-panel">
+    <div id="instruction" class="dist-info">Calculare rută...</div>
+    <div id="stats" class="time-info">-- km • -- min</div>
+</div>
+
 <div id="map"></div>
 
 <script>
-    // Coordonate Ghindăoani (aproximativ)
-    const destInatie = [26.3311, 47.1064]; 
+    // Destinația: Ghindăoani, Neamț
+    const destination = [26.3311, 47.1064]; 
+    let lastUpdatePos = [0, 0];
 
     const map = new maplibregl.Map({
         container: 'map',
         style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-        center: [26.106, 44.432], // Start București (se va schimba la GPS-ul tău)
-        zoom: 13,
-        pitch: 60
+        center: [26.106, 44.432], // Centru inițial
+        zoom: 18,
+        pitch: 65,
+        bearing: 0
     });
 
-    // Săgeata
-    const el = document.createElement('div');
-    el.innerHTML = `<svg width="40" height="40" viewBox="0 0 100 100"><path d="M50 5 L90 95 L50 75 L10 95 Z" fill="#0047ff" stroke="white" stroke-width="5"/></svg>`;
-    const marker = new maplibregl.Marker({element: el}).setLngLat([26.106, 44.432]).addTo(map);
+    // Săgeata Albastră
+    const arrowEl = document.createElement('div');
+    arrowEl.innerHTML = `<svg class="navigation-arrow" viewBox="0 0 100 100"><path d="M50 5 L90 95 L50 75 L10 95 Z" fill="#00d0ff" stroke="white" stroke-width="6"/></svg>`;
+    const carMarker = new maplibregl.Marker({ element: arrowEl, rotationAlignment: 'map' })
+        .setLngLat([26.106, 44.432])
+        .addTo(map);
 
-    // FUNCȚIE: Cere drumul de la motorul de hărți (GRATIS)
-    async function iaTraseu(start) {
-        const url = `https://router.project-osrm.org/route/v1/driving/${start[0]},${start[1]};${destInatie[0]},${destInatie[1]}?overview=full&geometries=geojson`;
-        
-        const response = await fetch(url);
-        const data = await response.json();
-        const route = data.routes[0].geometry;
+    // Funcție pentru a obține drumul și a calcula distanța
+    async function updateRouting(currentPos) {
+        try {
+            const url = `https://router.project-osrm.org/route/v1/driving/${currentPos[0]},${currentPos[1]};${destination[0]},${destination[1]}?overview=full&geometries=geojson`;
+            const resp = await fetch(url);
+            const data = await resp.json();
 
-        // Punem linia albastră pe hartă
-        if (map.getSource('route')) {
-            map.getSource('route').setData(route);
-        } else {
-            map.addLayer({
-                'id': 'route',
-                'type': 'line',
-                'source': { 'type': 'geojson', 'data': route },
-                'layout': { 'line-join': 'round', 'line-cap': 'round' },
-                'paint': { 'line-color': '#0047ff', 'line-width': 8, 'line-opacity': 0.8 }
-            });
+            if (!data.routes || data.routes.length === 0) return;
+
+            const route = data.routes[0];
+            const geometry = route.geometry;
+            const distanceKm = (route.distance / 1000).toFixed(1);
+            const durationMin = Math.round(route.duration / 60);
+
+            // Actualizăm UI-ul de sus
+            document.getElementById('instruction').innerText = "Spre Ghindăoani";
+            document.getElementById('stats').innerText = `${distanceKm} km • ${durationMin} min până la destinație`;
+
+            // Desenăm sau actualizăm linia albastră
+            if (map.getSource('route')) {
+                map.getSource('route').setData(geometry);
+            } else {
+                map.addSource('route', { type: 'geojson', data: geometry });
+                map.addLayer({
+                    id: 'route', type: 'line', source: 'route',
+                    layout: { 'line-join': 'round', 'line-cap': 'round' },
+                    paint: { 'line-color': '#00d0ff', 'line-width': 8, 'line-opacity': 0.8 }
+                });
+            }
+        } catch (e) {
+            console.error("Eroare la rutare:", e);
         }
-        document.getElementById('status').innerText = "Destinație: Ghindăoani";
     }
 
+    // Urmărire GPS reală
     navigator.geolocation.watchPosition(pos => {
-        const userLoc = [pos.coords.longitude, pos.coords.latitude];
-        marker.setLngLat(userLoc);
-        map.easeTo({ center: userLoc, bearing: pos.coords.heading || 0 });
-        iaTraseu(userLoc); // Actualizează linia în timp ce mergi
-    }, err => console.error(err), { enableHighAccuracy: true });
+        const { longitude, latitude, heading, speed } = pos.coords;
+        const currentPos = [longitude, latitude];
 
+        // 1. Mutăm mașina pe hartă
+        carMarker.setLngLat(currentPos);
+
+        // 2. Rotim harta și mașina după direcția GPS (dacă ne mișcăm)
+        if (heading !== null) {
+            map.easeTo({
+                center: currentPos,
+                bearing: heading,
+                duration: 1000
+            });
+        } else {
+            map.panTo(currentPos);
+        }
+
+        // 3. RECALCULARE: Dacă ne-am mișcat mai mult de 20 de metri, cerem o rută nouă
+        const distMoved = Math.sqrt(Math.pow(currentPos[0] - lastUpdatePos[0], 2) + Math.pow(currentPos[1] - lastUpdatePos[1], 2));
+        if (distMoved > 0.0002) { // aprox 20m
+            updateRouting(currentPos);
+            lastUpdatePos = currentPos;
+        }
+
+    }, err => {
+        alert("Activează locația și folosește HTTPS pe GitHub!");
+    }, {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 5000
+    });
 </script>
 </body>
 </html>
