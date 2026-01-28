@@ -2,44 +2,75 @@
 <html lang="ro">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>SoftGrid Nav Pro</title>
+
     <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background: #1a1a1a; }
+        body { margin: 0; padding: 0; overflow: hidden; background: #0b0b10; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; }
-        
+
         .nav-header {
-            position: absolute; top: 0; width: 100%; background: rgba(0, 31, 63, 0.95);
-            color: white; padding: 20px; z-index: 10; text-align: center;
-            border-bottom: 3px solid #00d0ff; font-family: sans-serif;
+            position: absolute;
+            top: 0; width: 100%;
+            background: rgba(0, 20, 40, 0.96);
+            color: white;
+            padding: 18px 20px;
+            z-index: 10;
+            text-align: center;
+            border-bottom: 2px solid #00d0ff;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.6);
+        }
+
+        #distance {
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        #arrival {
+            font-size: 13px;
+            color: #00d0ff;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 4px;
         }
 
         .car-marker {
-            width: 50px; height: 50px;
-            filter: drop-shadow(0 5px 10px rgba(0,0,0,0.5));
+            width: 50px;
+            height: 50px;
+            filter: drop-shadow(0 5px 10px rgba(0,0,0,0.6));
+            transform-origin: 50% 50%;
+            transition: transform 0.15s linear;
         }
 
-        /* Stil pentru pin-ul de sosire */
         .destination-pin {
             background-image: url('https://cdn-icons-png.flaticon.com/512/1483/1483336.png');
-            background-size: cover; width: 40px; height: 40px;
+            background-size: cover;
+            width: 40px;
+            height: 40px;
+            filter: drop-shadow(0 5px 10px rgba(0,0,0,0.7));
         }
     </style>
 </head>
 <body>
 
 <div class="nav-header">
-    <div id="distance" style="font-size: 28px; font-weight: bold;">-- km</div>
-    <div id="arrival" style="font-size: 14px; color: #00d0ff;">Calculare timp estimat...</div>
+    <div id="distance">-- km</div>
+    <div id="arrival">Calculare timp estimat...</div>
 </div>
 
 <div id="map"></div>
 
 <script>
+    // Destinația (Ghindăoani)
     const ghindaoani = [26.3311, 47.1064];
-    
+
+    // Inițializare hartă
     const map = new maplibregl.Map({
         container: 'map',
         style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
@@ -49,56 +80,150 @@
         bearing: 0
     });
 
-    // RETUȘ 1: Adăugăm marcaj la destinație
+    // Pin destinație
     const destEl = document.createElement('div');
     destEl.className = 'destination-pin';
-    new maplibregl.Marker({element: destEl}).setLngLat(ghindaoani).addTo(map);
+    new maplibregl.Marker({ element: destEl })
+        .setLngLat(ghindaoani)
+        .addTo(map);
 
-    // Săgeata (Mașina)
+    // Marker mașină (săgeată)
     const carEl = document.createElement('div');
-    carEl.innerHTML = `<svg class="car-marker" viewBox="0 0 100 100"><path d="M50 5 L95 95 L50 75 L5 95 Z" fill="#00d0ff" stroke="white" stroke-width="4"/></svg>`;
-    const carMarker = new maplibregl.Marker({element: carEl, rotationAlignment: 'map'}).setLngLat([26.106, 44.432]).addTo(map);
+    carEl.innerHTML = `
+        <svg class="car-marker" viewBox="0 0 100 100">
+            <path d="M50 5 L95 95 L50 75 L5 95 Z"
+                  fill="#00d0ff" stroke="white" stroke-width="4"/>
+        </svg>`;
+    const carMarker = new maplibregl.Marker({
+        element: carEl,
+        rotationAlignment: 'map'
+    }).setLngLat([26.106, 44.432]).addTo(map);
+
+    // Interpolare poziție (smooth movement)
+    let lastPos = null;
+    let animating = false;
+
+    function lerp(a, b, t) {
+        return a + (b - a) * t;
+    }
+
+    function smoothMove(from, to, duration = 500) {
+        if (!from) {
+            carMarker.setLngLat(to);
+            return;
+        }
+        const start = performance.now();
+        animating = true;
+
+        function animate(now) {
+            const t = Math.min((now - start) / duration, 1);
+            const lng = lerp(from[0], to[0], t);
+            const lat = lerp(from[1], to[1], t);
+            carMarker.setLngLat([lng, lat]);
+
+            if (t < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                animating = false;
+            }
+        }
+
+        requestAnimationFrame(animate);
+    }
+
+    // Heading calculat dacă lipsește din GPS
+    function calculateHeading(from, to) {
+        if (!from) return 0;
+        const dx = to[0] - from[0];
+        const dy = to[1] - from[1];
+        const angleRad = Math.atan2(dx, dy);
+        return angleRad * 180 / Math.PI;
+    }
+
+    // Rutare cu OSRM (limitată ca frecvență)
+    let lastRouteTime = 0;
 
     async function getRoute(currentPos) {
-        const url = `https://router.project-osrm.org/route/v1/driving/${currentPos[0]},${currentPos[1]};${ghindaoani[0]},${ghindaoani[1]}?overview=full&geometries=geojson`;
-        const res = await fetch(url);
-        const data = await res.json();
-        
-        if (data.routes && data.routes[0]) {
-            const route = data.routes[0];
-            document.getElementById('distance').innerText = (route.distance / 1000).toFixed(1) + " km";
-            document.getElementById('arrival').innerText = "Sosire în aprox. " + Math.round(route.duration / 60) + " min";
-            
-            if (map.getSource('route')) {
-                map.getSource('route').setData(route.geometry);
-            } else {
-                map.addSource('route', { type: 'geojson', data: route.geometry });
-                map.addLayer({
-                    id: 'route', type: 'line', source: 'route',
-                    paint: { 'line-color': '#00d0ff', 'line-width': 10, 'line-opacity': 0.8 }
-                });
+        const now = Date.now();
+        if (now - lastRouteTime < 5000) return; // max 1 cerere / 5s
+        lastRouteTime = now;
+
+        const url = `https://router.project-osrm.org/route/v1/driving/` +
+                    `${currentPos[0]},${currentPos[1]};` +
+                    `${ghindaoani[0]},${ghindaoani[1]}?overview=full&geometries=geojson`;
+
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (data.routes && data.routes[0]) {
+                const route = data.routes[0];
+
+                document.getElementById('distance').innerText =
+                    (route.distance / 1000).toFixed(1) + " km";
+                document.getElementById('arrival').innerText =
+                    "Sosire în aprox. " + Math.round(route.duration / 60) + " min";
+
+                if (map.getSource('route')) {
+                    map.getSource('route').setData(route.geometry);
+                } else {
+                    map.addSource('route', {
+                        type: 'geojson',
+                        data: route.geometry
+                    });
+                    map.addLayer({
+                        id: 'route',
+                        type: 'line',
+                        source: 'route',
+                        paint: {
+                            'line-color': '#00d0ff',
+                            'line-width': 8,
+                            'line-opacity': 0.85
+                        }
+                    });
+                }
             }
+        } catch (e) {
+            console.warn("Eroare la rutare:", e);
         }
     }
 
+    // Tracking GPS în timp real
     navigator.geolocation.watchPosition(pos => {
         const userPos = [pos.coords.longitude, pos.coords.latitude];
-        const heading = pos.coords.heading || 0;
 
-        carMarker.setLngLat(userPos);
+        // Mișcare smooth a mașinii
+        smoothMove(lastPos, userPos);
+        lastPos = userPos;
 
-        // RETUȘ 2: Camera Offset & Smooth Movement
-        // Folosim 'padding' pentru a ține mașina mai jos de centru
+        // Heading: din GPS sau calculat
+        const heading = pos.coords.heading != null
+            ? pos.coords.heading
+            : calculateHeading(lastPos, userPos);
+
+        const svg = carEl.querySelector('.car-marker');
+        svg.style.transform = `rotate(${heading}deg)`;
+
+        // Cameră mai „pro” (rapidă, fără lag mare)
         map.easeTo({
             center: userPos,
             bearing: heading,
-            padding: { top: 300 }, // Împinge mașina în jos ca să vezi drumul în față
-            duration: 1500,        // Tranziție lină de 1.5 secunde
+            padding: { top: 260 },
+            duration: 500,
+            easing: n => n,
             essential: true
         });
 
+        // Rută actualizată periodic
         getRoute(userPos);
-    }, null, { enableHighAccuracy: true });
+    }, err => {
+        console.error("Eroare GPS:", err);
+        document.getElementById('arrival').innerText = "GPS indisponibil...";
+    }, {
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 10000
+    });
 </script>
 </body>
 </html>
